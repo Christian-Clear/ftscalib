@@ -66,7 +66,7 @@ def get_common_lines(aln_lines, cln_lines, wavenum_discrim):
             if abs(diff) <= wavenum_discrim:
                 no_of_matches += 1
                 delta_sig = diff / float(aln_line.wavenumber)  # delta sigma over sigma 
-                common_lines.append((aln_line, delta_sig))
+                common_lines.append((aln_line, cln_line, delta_sig))
                 
         if no_of_matches > 1:  # Raises exception if multiple possible matches found in cln file
             raise ValueError("Multiple line assignments for line: %s" % aln_line.wavenumber)
@@ -74,7 +74,30 @@ def get_common_lines(aln_lines, cln_lines, wavenum_discrim):
     return common_lines
     
                 
-def get_corr_factor(common_lines, std_dev_discrim):
+def get_corr_factor_std_dev(common_lines, std_dev_discrim):
+    """Discards lines outside of the std_dev_discrim limits and recalculates
+    correction factor, std dev and std error for the remaining lines. Returns
+    lines used in the new calcuation, the rejected lines, newly calculated
+    correction factor, std dev and std error."""
+     
+    lines_used = common_lines
+    lines_rejected = []    
+    corr_factor = calc_corr_factor(lines_used)
+    std_dev, std_error = calc_std_dev(lines_used)
+    limit = std_dev_discrim * std_dev
+         
+    for line in common_lines:   
+        delta_sig = line[2]        
+        if delta_sig > (corr_factor + limit) or delta_sig < (corr_factor - limit):
+            lines_rejected.append(line)
+            lines_used.remove(line)
+    
+    corr_factor = calc_corr_factor(lines_used)
+    std_dev, std_error = calc_std_dev(lines_used)
+     
+    return lines_used, lines_rejected, corr_factor, std_dev, std_error    
+    
+def get_corr_factor_gill(common_lines, std_dev_discrim):
     """Discards lines outside of the std_dev_discrim limits and recalculates
     correction factor, std dev and std error for the remaining lines. Returns
     lines used in the new calcuation, the rejected lines, newly calculated
@@ -87,16 +110,66 @@ def get_corr_factor(common_lines, std_dev_discrim):
     limit = std_dev_discrim * std_dev
          
     for line in common_lines:           
-        if line[1] > (corr_factor + limit) or line[1] < (corr_factor - limit):
+        if line[2] > (corr_factor + limit) or line[2] < (corr_factor - limit):
             lines_rejected.append(line)
             lines_used.remove(line)
     
     corr_factor = calc_corr_factor(lines_used)
-    print lines_used
-    std_dev, std_error = calc_std_dev(lines_used)
+    corr_factor_unc = calc_corr_factor_unc_gill(common_lines)
      
-    return lines_used, lines_rejected, corr_factor, std_dev, std_error    
+    return lines_used, lines_rejected, corr_factor, corr_factor_unc 
+
+
     
+def calc_corr_factor_unc_gill(common_lines):
+    
+    prev_calib_unc = 0.  # change for all following spectra to prev spectra's unc
+    total_stat_unc = 0.
+        
+    for line in common_lines:
+        aln_line = line[0]
+        cln_line = line[1]
+        
+        cln_stat_unc = (float(cln_line.width) * (10**-3))/(2 * float(cln_line.peak)) / float(cln_line.wavenumber)
+        aln_stat_unc = (float(aln_line.width) * (10**-3))/(2 * float(aln_line.peak)) / float(aln_line.wavenumber)
+        
+        #print aln_stat_unc
+                        
+        total_stat_unc += (np.sqrt(cln_stat_unc**2 + aln_stat_unc**2))
+        
+        #print total_stat_unc
+        
+        
+    print total_stat_unc
+        
+        
+   # total_calib_unc = prev_calib_unc + total_stat_unc
+    #return total_calib_unc
+    
+    
+#def get_corr_factor_sasha(common_lines, std_dev_discrim):
+#    """Discards lines outside of the std_dev_discrim limits and recalculates
+#    correction factor, std dev and std error for the remaining lines. Returns
+#    lines used in the new calcuation, the rejected lines, newly calculated
+#    correction factor, std dev and std error."""
+#     
+#    lines_used = common_lines
+#    lines_rejected = []    
+#    corr_factor = calc_corr_factor(lines_used)
+#    std_dev, std_error = calc_std_dev(lines_used)
+#    limit = std_dev_discrim * std_dev
+#         
+#    for line in common_lines:           
+#        if line[1] > (corr_factor + limit) or line[1] < (corr_factor - limit):
+#            lines_rejected.append(line)
+#            lines_used.remove(line)
+#    
+#    corr_factor = calc_corr_factor(lines_used)
+#    std_dev, std_error = calc_std_dev(lines_used)
+#     
+#    return lines_used, lines_rejected, corr_factor, std_dev, std_error  
+#
+
 
 def calc_corr_factor(common_lines):
     """Returns the weighted average of delta sigma over sigma for all good,
@@ -107,7 +180,7 @@ def calc_corr_factor(common_lines):
     total_weight = 0.
     
     for line in common_lines:
-        delta_sig = line[1]
+        delta_sig = line[2]
         snr = float(line[0].peak)
         weighted_factors += (delta_sig * snr)
         total_weight += snr
@@ -141,7 +214,7 @@ def calc_std_dev(common_lines):
     delta_sigmas = []
     
     for line in common_lines:
-        delta_sigmas.append(line[1])  # line[1] = delta sigma / sigma values 
+        delta_sigmas.append(line[2])  # line[1] = delta sigma / sigma values 
         
     std_dev_array = np.array(delta_sigmas)  # convert to numpy array
     std_dev = np.std(std_dev_array)
@@ -154,8 +227,8 @@ def calc_std_dev(common_lines):
     
     
     
+
     
-#def calc_keff_unc_gill():
     
     
     
@@ -210,8 +283,11 @@ cln_good_lines = remove_bad_lines(cln_raw_lines, snr_discrim)
 
 common_lines = get_common_lines(aln_good_lines, cln_good_lines, wavenum_discrim)
 
-lines_used, lines_rejected, corr_factor, std_dev, std_error = get_corr_factor(common_lines, std_dev_discrim)
+lines_used, lines_rejected, corr_factor, std_dev, std_error = get_corr_factor_std_dev(common_lines, std_dev_discrim)
 print len(lines_used), corr_factor, std_dev
+
+
+lines_used, lines_rejected, corr_factor, corr_factor_unc = get_corr_factor_gill(common_lines, std_dev_discrim)
 
 aln_in.close()
 cln_in.close()   
