@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
 """
+Created on Fri Jun 30 10:40:31 2017
+
+@author: christian
+"""
+
+# -*- coding: utf-8 -*-
+"""
 Created on Thu May 25 14:20:06 2017
 
 @author: christian
@@ -13,7 +20,6 @@ writelines output format)
 """
 
 import numpy as np
-import matplotlib.pyplot as plt
 
 def get_header(header_lines_in):
     """Extracts the header lines at the start of aln and cln files.
@@ -21,8 +27,8 @@ def get_header(header_lines_in):
     
     header = ""
     
-    for line in header_lines_in[:4]:
-        header += line
+    for header_line in header_lines_in[:4]:
+        header += header_line
         
     return header
     
@@ -76,119 +82,81 @@ def get_common_lines(get_cmn_aln_lines, get_cmn_cln_lines, get_cmn_wavenum_discr
     return get_cmn_common_lines
 
 
-def calc_corr_factor(calc_corr_common_lines, prev_calib_unc):
+def calc_corr_factor(calc_corr_common_lines):
     """Returns the weighted average of delta sigma over sigma for all good,
     common lines. This correction factor is weighted against SNR of the 
     lines"""
     
     weighted_factors = 0.   
     total_weight = 0.
-#    weights = []  # list of tuples of (ki, wi)
     
     for line in calc_corr_common_lines:
-        ki = line[2]  # delta sigma over sigma
-        aln_snr = float(line[0].peak)         
+        delta_sig = line[2]
+        aln_snr = float(line[0].peak) 
+        
         aln_FWHM = float(line[0].width) / 1000  # to convert from mK to cm-1
-        aln_stat_unc = (aln_FWHM / (2 * aln_snr)) 
+        aln_unc = (aln_FWHM / (2 * aln_snr)) 
+        print aln_unc
         
         cln_snr = float(line[1].peak)
         cln_FWHM = float(line[1].width) / 1000
-        cln_stat_unc = cln_FWHM / (2 * cln_snr)
-        cln_tot_unc = np.sqrt(np.power(cln_stat_unc, 2) + np.power(prev_calib_unc, 2))
-                
-        wi = 1 / (np.power(aln_stat_unc, 2) + np.power(cln_tot_unc, 2))
+        cln_unc = cln_FWHM / (2 * cln_snr)
+        #print cln_unc
+        tot_unc = np.sqrt(np.power(aln_unc, 2) + np.power(cln_unc, 2))
         
-        weighted_factors += (ki * wi)
-        total_weight += wi        
-#        weights.append((ki, wi))  # only used for Sasha's uncertainty method
-             
-    return (weighted_factors / total_weight)#, weights
+        wi = aln_unc ** -2
+        
+        weighted_factors += (delta_sig * wi)
+        total_weight += wi
+        
+    return weighted_factors / total_weight
     
 
   
-def get_corr_factor(get_corr_common_lines, std_dev_discrim, calib_unc):
+def get_corr_factor_gill(get_corr_gill_common_lines, std_dev_discrim):
     """Discards lines outside of the std_dev_discrim limits and recalculates
     correction factor, std dev and std error for the remaining lines. Returns
     lines used in the new calcuation, the rejected lines, newly calculated
     correction factor, std dev and std error."""
      
-    lines_used = []
+    lines_used = get_corr_gill_common_lines
+    print "gill: " + str(len(lines_used))
     lines_rejected = []    
-#    corr_factor, x = calc_corr_factor(lines_used, calib_unc)  # x used as dummy array as "weights" not needed here
-    corr_factor = calc_corr_factor(get_corr_common_lines, calib_unc)  # x used as dummy array as "weights" not needed here
-    std_dev, std_error = calc_std_dev(get_corr_common_lines)
-    limit = std_dev_discrim * std_dev  # set std_dev limit for delta sigma over sigma from corr_factor
+    corr_factor = calc_corr_factor(lines_used)
+    print "corr_factor_gill: ", corr_factor
+    std_dev, std_error = calc_std_dev(lines_used)
+    limit = std_dev_discrim * std_dev
+         
+    for line in get_corr_gill_common_lines:   
+        delta_sig = line[2]        
+        if delta_sig > (corr_factor + limit) or delta_sig < (corr_factor - limit):
+           # print "Gill"
+            lines_rejected.append(line)
+            lines_used.remove(line)
 
-    std_dev_limit = (corr_factor - limit, corr_factor + limit)
-    
-    for line in get_corr_common_lines: 
-        delta_sig = line[2]
-        if delta_sig <= (corr_factor + limit) and delta_sig >= (corr_factor - limit):
-            lines_used.append(line)
-        else:
-            lines_rejected.append(line)    
-    
-    corr_factor = calc_corr_factor(lines_used, calib_unc)
-#    corr_factor_unc = calc_corr_factor_unc(corr_factor, weights)
-#    print(corr_factor_unc)
-    calib_unc = calc_calib_unc(lines_used, calib_unc)
+    corr_factor = calc_corr_factor(lines_used)
+    corr_factor_unc = calc_corr_factor_unc_gill(lines_used)
      
-    return lines_used, lines_rejected, corr_factor, calib_unc, std_dev_limit
+    return lines_used, lines_rejected, corr_factor, corr_factor_unc 
 
 
     
-#def calc_corr_factor_unc(keff, keff_weights):
-#    
-#    keff_unc = 0.
-#    tot_wi = 0.
-#    x = 0.
-#        
-#    for weight in keff_weights:
-#        ki = weight[0]
-#        wi = weight[1]
-#        
-#       # print(np.power((keff - ki), 2))
-#       # print(np.power(wi, 2))
-#       # print((np.power(wi, 2) * np.power((keff - ki), 2)))
-#        
-#        
-#        keff_unc += (wi + (np.power(wi, 2) * np.power((keff - ki), 2)))
-#        tot_wi += wi
-#        #print(tot_wi)
-#        x += 1
-#    
-#    keff_unc = np.sqrt(keff_unc) / tot_wi 
-#    
-#    #print(tot_wi)
-#                   
-#    return keff_unc
-
-
-
-def calc_calib_unc(corr_fact_unc_common_lines, prev_calib_unc):
+def calc_corr_factor_unc_gill(corr_fact_unc_gill_common_lines):
     
     total_stat_unc = 0.
-    snr_limit = 100.
         
-    for line in corr_fact_unc_common_lines:
+    for line in corr_fact_unc_gill_common_lines:
         aln_line = line[0]
-        cln_line = line[1]        
-        aln_SNR = float(aln_line.peak)
-        aln_FWHM = float(aln_line.width) / 1000  # convert mK to cm-1                  
-        cln_SNR = float(cln_line.peak)
-        cln_FWHM = float(cln_line.width) / 1000  # convert mK to cm-1
+        cln_line = line[1]
+        
+        cln_stat_unc = (float(cln_line.width) * (10**-3))/(2 * float(cln_line.peak)) / float(cln_line.wavenumber)
+        aln_stat_unc = (float(aln_line.width) * (10**-3))/(2 * float(aln_line.peak)) / float(aln_line.wavenumber)
+        
+        #print aln_line.peak, aln_line.width, aln_stat_unc
                
-        if aln_SNR > snr_limit:  # Limit on SNR for strong lines to ensure sensible calibration uncertainty
-            aln_SNR = snr_limit
-        if cln_SNR > snr_limit:
-            cln_SNR = snr_limit
-
-        aln_stat_unc = (aln_FWHM / (2 * aln_SNR))     
-        cln_stat_unc = (cln_FWHM / (2 * cln_SNR))
-               
-        total_stat_unc += np.sqrt(np.power(aln_stat_unc, 2) + np.power(cln_stat_unc, 2))
+        total_stat_unc += (cln_stat_unc**2 + aln_stat_unc**2)**0.5
                 
-    return prev_calib_unc + (total_stat_unc / len(corr_fact_unc_common_lines))
+    return total_stat_unc/len(corr_fact_unc_gill_common_lines)
    
 
     
@@ -206,34 +174,6 @@ def calc_std_dev(calc_std_dev_common_lines):
     std_error = std_dev / np.sqrt(len(std_dev_array))
     
     return std_dev, std_error
-
-
-def plot_corr_factor(plot_lines_used, plot_lines_rejected, plot_corr_factor, plot_std_dev_limit):
-    
-    lines_used_wn = []
-    lines_used_del_sig = []
-    lines_reject_wn = []
-    lines_reject_del_sig = []
-    
-    
-    for line in plot_lines_used:
-        lines_used_wn.append(line[0].wavenumber)
-        lines_used_del_sig.append(line[2])
-    
-    for line in plot_lines_rejected:
-        lines_reject_wn.append(line[0].wavenumber)
-        lines_reject_del_sig.append(line[2])
-    
-    plt.plot(lines_used_wn, lines_used_del_sig, 'b+')
-    plt.plot(lines_reject_wn, lines_reject_del_sig, 'r+')
-    plt.axhline(y=plot_corr_factor, color='k', linestyle='-')
-    plt.axhline(y=(plot_std_dev_limit[0]), color='k', linestyle='--')
-    plt.axhline(y=(plot_std_dev_limit[1]), color='k', linestyle='--')
-    plt.ylabel(r'$\Delta \sigma / \sigma$')
-    plt.xlabel('Wavenumber (cm'r'$^{-1})$')
-    
-    plt.show()
-        
         
 
 class Line:
@@ -266,8 +206,7 @@ def main():
         
     snr_discrim = 10.
     wavenum_discrim = 0.05
-    std_dev_discrim = 3.0
-    prev_calib_unc = 0.
+    std_dev_discrim = 0.5
     
     aln_in = open("test.aln", 'r')
     cln_in = open("test.cln", "r")
@@ -286,20 +225,8 @@ def main():
     
     cmn_lines = get_common_lines(aln_good_lines, cln_good_lines, wavenum_discrim)
     
-    lines_used, lines_rejected, corr_factor, calib_unc, std_dev_limit = get_corr_factor(cmn_lines, std_dev_discrim, prev_calib_unc)
-    print(len(lines_used), corr_factor, calib_unc)
-    
-#    print(corr_factor + std_dev_limit, corr_factor - std_dev_limit)
-#    
-#    for line in lines_used:
-#        print(line[0].wavenumber, line[2])
-#        
-#    print('.......................')
-#    
-#    for line in lines_rejected:
-#        print(line[0].wavenumber, line[2])
-    
-    plot_corr_factor(lines_used, lines_rejected, corr_factor, std_dev_limit)
+    lines_used, lines_rejected, corr_factor, corr_factor_unc = get_corr_factor_gill(cmn_lines, std_dev_discrim)
+    print len(lines_used), corr_factor, corr_factor_unc
     
     aln_in.close()
     cln_in.close()   
