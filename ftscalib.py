@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
 Created on Thu May 25 14:20:06 2017
@@ -14,6 +15,7 @@ writelines output format)
 
 import numpy as np
 import matplotlib.pyplot as plt
+import sys
 
 def get_header(header_lines_in):
     """Extracts the header lines at the start of aln and cln files.
@@ -103,7 +105,7 @@ def calc_corr_factor(calc_corr_common_lines, prev_calib_unc):
     return (weighted_factors / total_weight)
     
 
-def get_corr_factor(get_corr_common_lines, std_dev_discrim, calib_unc):
+def get_corr_factor(get_corr_common_lines, std_dev_discrim, prev_calib_unc):
     """Discards lines outside of the std_dev_discrim limits and recalculates
     correction factor, std dev and std error for the remaining lines. Returns
     lines used in the new calcuation, the rejected lines, newly calculated
@@ -111,7 +113,7 @@ def get_corr_factor(get_corr_common_lines, std_dev_discrim, calib_unc):
      
     lines_used = []
     lines_rejected = []    
-    corr_factor = calc_corr_factor(get_corr_common_lines, calib_unc)  # x used as dummy array as "weights" not needed here
+    corr_factor = calc_corr_factor(get_corr_common_lines, prev_calib_unc)  # x used as dummy array as "weights" not needed here
     std_dev, std_error = calc_std_dev(get_corr_common_lines)
     limit = std_dev_discrim * std_dev  # set std_dev limit for delta sigma over sigma from corr_factor
 
@@ -124,10 +126,50 @@ def get_corr_factor(get_corr_common_lines, std_dev_discrim, calib_unc):
         else:
             lines_rejected.append(line)    
     
-    corr_factor = calc_corr_factor(lines_used, calib_unc)
-    calib_unc = calc_calib_unc(lines_used, calib_unc)
+    corr_factor = calc_corr_factor(lines_used, prev_calib_unc)
+    calib_unc = calc_calib_unc(lines_used, prev_calib_unc)
      
     return lines_used, lines_rejected, corr_factor, calib_unc, std_dev_limit
+
+#def get_corr_factor(get_corr_common_lines, std_dev_discrim, prev_calib_unc):
+#    """Discards lines outside of the std_dev_discrim limits and recalculates
+#    correction factor, std dev and std error for the remaining lines. Returns
+#    lines used in the new calcuation, the rejected lines, newly calculated
+#    correction factor, std dev and std error."""
+#    
+#    working_lines = get_corr_common_lines
+#    lines_rejected = []
+#    optimised = False
+#    
+#    while optimised is False:
+#        
+#        optimised = True
+#        good_lines = []
+#               
+#        try:
+#            corr_factor = calc_corr_factor(working_lines, prev_calib_unc)
+#        except ZeroDivisionError:
+#            print('No lines within %.2f standard deviations of mean! Try increasing the std. dev. discriminator.' % std_dev_discrim)
+#            sys.exit()
+#            
+#        std_dev, std_error = calc_std_dev(working_lines)
+#        limit = std_dev_discrim * std_dev
+#        
+#        for line in working_lines:
+#            delta_sig = line[2]
+#            if delta_sig <= (corr_factor + limit) and delta_sig >= (corr_factor - limit):
+#                good_lines.append(line)
+#            else:
+#                optimised = False
+#                lines_rejected.append(line) 
+#            
+#        working_lines = good_lines       
+#
+#    lines_used = working_lines
+#    std_dev_limit = (corr_factor - limit, corr_factor + limit)
+#    calib_unc = calc_calib_unc(lines_used, prev_calib_unc)
+#     
+#    return lines_used, lines_rejected, corr_factor, calib_unc, std_dev_limit
 
 
 def calc_calib_unc(corr_fact_unc_common_lines, prev_calib_unc):
@@ -176,7 +218,7 @@ def calc_std_dev(calc_std_dev_common_lines):
     return std_dev, std_error
 
 
-def plot_corr_factor(plot_lines_used, plot_lines_rejected, plot_corr_factor, plot_std_dev_limit, aln_filename, cln_filename):
+def plot_corr_factor(plot_lines_used, plot_lines_rejected, plot_corr_factor, plot_std_dev_limit, aln_filename, cln_filename, calib_unc):
     """Plots the lines used in (and lines rejected from) the correction factor 
     and calibration uncertainty calculations. The calculated correction factor 
     and the limits of the lines selection are also plotted."""
@@ -207,9 +249,10 @@ def plot_corr_factor(plot_lines_used, plot_lines_rejected, plot_corr_factor, plo
         plot_data.write('%s \t %E\n' % (line[0].wavenumber, line[2]))
     
     plot_data.write('\n--------------------------------------------------\n')
-    plot_data.write('Correction factor = %f\n' % plot_corr_factor)
-    plot_data.write('Upper s.d. limit = %f\n' % plot_std_dev_limit[0])
-    plot_data.write('Lower s.d. limit = %f' % plot_std_dev_limit[1])
+    plot_data.write('Correction factor = \t%E\n' % plot_corr_factor)
+    plot_data.write('Upper s.d. limit  = \t%E\n' % plot_std_dev_limit[0])
+    plot_data.write('Lower s.d. limit  = \t%E\n' % plot_std_dev_limit[1])
+    plot_data.write('Calibration unc.  =\t %E' % calib_unc)
     plot_data.close()
      
     lines_used_del_sig = [x * np.power(10, 7) for x in lines_used_del_sig]  # convert everything into units of 10^-7
@@ -280,7 +323,6 @@ def write_cln_unc_file(aln_raw_lines,  corr_factor, calib_unc, aln_filename):
         
     new_cal_file.close()
 
-
         
 class Line:    
     """Assigns all parameters from a line from an xgremlin "writelines" 
@@ -305,29 +347,64 @@ class Line:
         self.wavelength = xgremlin_line[150:160]
         
 class Decor:
-   PURPLE = '\033[95m'
-   CYAN = '\033[96m'
-   DARKCYAN = '\033[36m'
-   BLUE = '\033[94m'
-   GREEN = '\033[92m'
-   YELLOW = '\033[93m'
-   RED = '\033[91m'
-   BOLD = '\033[1m'
-   UNDERLINE = '\033[4m'
-   END = '\033[0m' 
-     
+    PURPLE = '\033[95m'
+    CYAN = '\033[96m'
+    DARKCYAN = '\033[36m'
+    BLUE = '\033[94m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+    END = '\033[0m' 
+    
+def print_docstring():
+    docstring = """
+    
+    ========== ftscalib (v1.0) ============
+    
+    author : Christian Clear
+    email  : cpc14@ic.ac.uk
+    date   : 26/07/17
+    
+    ftscalib is a python script for calibrating xGremlin .aln files against previously calibrated lines or Ar II standards.
+    Use only the Ar II standards bundled with ftscalib or match the format exactly if using your own. ftscalib is designed 
+    to be run in a unix terminal. 
+    
+    Inputs:
+        ftscalib input (.inp) file
+    Outputs:
+        calibrated linelist (.cln)
+        uncertainties of that linelist (.cal)
+        delta sigma / sigma against wavenumber plot (.png)
+        data used to make the plot (.plt)
+    
+    """
+    print(docstring)
 
 #### Main Program ####
 def main():
-        
-    snr_discrim = 10.
-    wavenum_discrim = 0.05
-    std_dev_discrim = 1.0
-    prev_calib_unc = 0.
-    aln_filename = 'test.aln'
-    cln_filename = 'test.cln'
     
-    print('Calibrating %s against %s.\n' % (aln_filename, cln_filename))
+    try:
+        inp_file = open(sys.argv[1], 'r')    
+    except IndexError:
+        print_docstring()
+        sys.exit()
+        
+    inp = inp_file.readlines()
+    
+    try: 
+        snr_discrim = float(inp[4].split('=')[1])
+        wavenum_discrim = float(inp[5].split('=')[1])
+        std_dev_discrim = float(inp[6].split('=')[1])
+        prev_calib_unc = float(inp[7].split('=')[1])
+        aln_filename = (inp[8].split('=')[1].strip())
+        cln_filename = (inp[9].split('=')[1].strip()) 
+    except IndexError:
+        print('Input file is empty or corrupted. Please check and try again.')
+        sys.exit()
+
+    print('\nCalibrating %s against %s.\n' % (aln_filename, cln_filename))
     
     aln_in = open(aln_filename, 'r')
     cln_in = open(cln_filename, "r")
@@ -349,28 +426,31 @@ def main():
     
     cmn_lines = get_common_lines(aln_good_lines, cln_good_lines, wavenum_discrim)
     
-    print('Lines matching within +- %.2f cm-1:' % wavenum_discrim)
-    print(Decor.UNDERLINE + Decor.BOLD + 'aln Wavenumber \t aln SNR \t cln SNR' + Decor.END)
+    print((Decor.UNDERLINE + Decor.BOLD + 'Lines matching within +- %.2f cm-1:'  + Decor.END) % wavenum_discrim)
+    print('Line\taln Wavenumber\taln SNR \tcln SNR')
     
     for line in cmn_lines:
-        print('%.4f \t %.1f    \t %.1f' % (float(line[0].wavenumber), float(line[0].peak), float(line[1].peak)))
+        print('%d\t%.4f \t%.1f    \t%.1f' % (float(line[0].line), float(line[0].wavenumber), float(line[0].peak), float(line[1].peak)))
     
     lines_used, lines_rejected, corr_factor, calib_unc, std_dev_limit = get_corr_factor(cmn_lines, std_dev_discrim, prev_calib_unc)
     
+    print('\n\nRemoving lines from correction factor calculation based on distance from mean:')
     
     if len(lines_rejected) > 0:
-        print('\n\nLines rejected from fit (> %s s.d. from mean):' % std_dev_discrim)
+        print((Decor.UNDERLINE + Decor.BOLD + '\nLines rejected from fit (> %s s.d. from mean):' + Decor.END) % std_dev_discrim)
     
         for line in lines_rejected:
-            print('%.4f' % (float(line[0].wavenumber)))
+            print('%d\t%.4f' % (float(line[0].line), float(line[0].wavenumber)))
     else:
         print('\n\nAll lines within %s s.d. of mean.' % std_dev_discrim)
-
     
-    print('\nCorrection Factor = %.4E' % corr_factor)
-    print('Calibration Uncertainty = %.4E cm-1' % calib_unc)
+    print('\n\nCalculating final correction factor and calibration uncertainty:')
+    print('\n------------------------------------------')
+    print('Correction Factor       : %.4E' % corr_factor)
+    print('Calibration Uncertainty : %.4E cm-1' % calib_unc)
+    print('------------------------------------------\n')    
     
-    plot_corr_factor(lines_used, lines_rejected, corr_factor, std_dev_limit, aln_filename, cln_filename)
+    plot_corr_factor(lines_used, lines_rejected, corr_factor, std_dev_limit, aln_filename, cln_filename, calib_unc)
     
     write_cln_file(aln_in_lines, corr_factor, aln_header, aln_filename)
     write_cln_unc_file(aln_raw_lines, corr_factor, calib_unc, aln_filename)
@@ -378,4 +458,5 @@ def main():
     aln_in.close()
     cln_in.close()   
 
-main()
+if __name__ == '__main__':
+    main()

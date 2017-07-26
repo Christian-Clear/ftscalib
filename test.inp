@@ -1,0 +1,10 @@
+# ftscalib input file
+#
+# Change only the variable values. Do not change the order of the variables or their line positions!
+
+snr discriminator = 10.
+wavenumber matching limit = 0.05
+standard deviation limit = 2.0
+previous calibration uncertainty = 0.
+aln filename = test.aln
+cln filename = test.cln
