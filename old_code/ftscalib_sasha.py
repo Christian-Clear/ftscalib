@@ -93,7 +93,7 @@ def get_corr_factor_sasha(corr_fact_sasha_common_lines, std_dev_discrim):
     #print "lines used before:" + str(len(lines_used))
     lines_rejected = []    
     corr_factor, x = calc_corr_factor_sasha(lines_used)
-    print "corr_factor_sasha: ", corr_factor
+    print("corr_factor_sasha: ", corr_factor)
     std_dev, std_error = calc_std_dev(lines_used)
     limit = std_dev_discrim * std_dev
          
@@ -243,8 +243,8 @@ def main():
     wavenum_discrim = 0.05
     std_dev_discrim = 0.5
     
-    aln_in = open("test.aln", 'r')
-    cln_in = open("test.cln", "r")
+    aln_in = open("../test.aln", 'r')
+    cln_in = open("../test.cln", "r")
     
     aln_in_lines = aln_in.readlines()
     cln_in_lines = cln_in.readlines()
@@ -263,7 +263,7 @@ def main():
    # common_lines2 = common_lines
     
     lines_used, lines_rejected, corr_factor, corr_factor_unc = get_corr_factor_sasha(cmn_lines, std_dev_discrim)
-    print len(lines_used), corr_factor, corr_factor_unc
+    print(len(lines_used), corr_factor, corr_factor_unc)
       
     aln_in.close()
     cln_in.close()   

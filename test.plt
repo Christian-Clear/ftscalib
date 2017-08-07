@@ -16,6 +16,7 @@ Wavenumber (cm-1) 	 del sigma / sigma
 21462.902601 	 -6.243797E-07
 21831.059327 	 -6.196218E-07
 21995.797583 	 -6.266197E-07
+22561.968424 	 -5.905513E-07
 22566.080561 	 -6.142405E-07
 22587.431714 	 -6.248608E-07
 22715.813977 	 -6.108960E-07
@@ -29,10 +30,9 @@ Wavenumber (cm-1) 	 del sigma / sigma
 --------------------------------------------------
 Lines rejected from correction factor calcuation:
 Wavenumber (cm-1) 	 del sigma / sigma
-22561.968424 	 -5.905513E-07
 
 --------------------------------------------------
-Correction factor = 	-6.165694E-07
-Upper s.d. limit  = 	-6.331752E-07
-Lower s.d. limit  = 	-5.981173E-07
-Calibration unc.  =	 5.607821E-04
+Correction factor = 	-6.156463E-07
+Upper s.d. limit  = 	-6.419397E-07
+Lower s.d. limit  = 	-5.893529E-07
+Calibration unc.  = 	 1.460826E-09

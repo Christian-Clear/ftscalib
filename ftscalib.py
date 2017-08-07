@@ -16,6 +16,7 @@ writelines output format)
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
+import os
 
 def get_header(header_lines_in):
     """Extracts the header lines at the start of aln and cln files.
@@ -38,13 +39,13 @@ def get_lines(get_lines_in):
     for line in get_lines_in[4:]:
         extracted_line = Line(line)  # create object of class Line
         all_lines.append(extracted_line)
-        
+         
     return all_lines
         
         
 def remove_bad_lines(rm_bad_line_list, rm_bad_snr_disc):
     """Removes Line objects from line_list if they are not lsqfitted and/or
-    have peak heights less than snr_discrim"""    
+    have peak heights less than snr_discrim"""
     
     good_lines = []
     
@@ -56,8 +57,8 @@ def remove_bad_lines(rm_bad_line_list, rm_bad_snr_disc):
     
     
 def get_common_lines(get_cmn_aln_lines, get_cmn_cln_lines, get_cmn_wavenum_discrim):
-    """Returns list of aln lines that match lines in the cln line_list within
-    a tolerance of +- wavenum_discrim"""
+    """Returns list of tuples of (aln line, cln_line, delta sigma / sigma for that pair)
+    that match lines in the cln line_list within a tolerance of +- wavenum_discrim"""
     
     get_cmn_common_lines = []   
     
@@ -76,33 +77,6 @@ def get_common_lines(get_cmn_aln_lines, get_cmn_cln_lines, get_cmn_wavenum_discr
             raise ValueError("Multiple line assignments for line: %s" % aln_line.wavenumber)
     
     return get_cmn_common_lines
-
-
-def calc_corr_factor(calc_corr_common_lines, prev_calib_unc):
-    """Returns the weighted average of delta sigma over sigma for all good,
-    common lines. This correction factor is weighted against SNR of the 
-    lines"""
-    
-    weighted_factors = 0.   
-    total_weight = 0.
-    
-    for line in calc_corr_common_lines:
-        ki = line[2]  # delta sigma over sigma
-        aln_snr = float(line[0].peak)         
-        aln_FWHM = float(line[0].width) / 1000  # to convert from mK to cm-1
-        aln_stat_unc = (aln_FWHM / (2 * aln_snr)) 
-        
-        cln_snr = float(line[1].peak)
-        cln_FWHM = float(line[1].width) / 1000
-        cln_stat_unc = cln_FWHM / (2 * cln_snr)
-        cln_tot_unc = np.sqrt(np.power(cln_stat_unc, 2) + np.power(prev_calib_unc, 2))
-                
-        wi = 1 / (np.power(aln_stat_unc, 2) + np.power(cln_tot_unc, 2))
-        
-        weighted_factors += (ki * wi)
-        total_weight += wi        
-             
-    return (weighted_factors / total_weight)
     
 
 def get_corr_factor(get_corr_common_lines, std_dev_discrim, prev_calib_unc):
@@ -112,16 +86,16 @@ def get_corr_factor(get_corr_common_lines, std_dev_discrim, prev_calib_unc):
     correction factor, std dev and std error."""
      
     lines_used = []
-    lines_rejected = []    
+    lines_rejected = [] 
+    
     corr_factor = calc_corr_factor(get_corr_common_lines, prev_calib_unc)  # x used as dummy array as "weights" not needed here
     std_dev, std_error = calc_std_dev(get_corr_common_lines)
     limit = std_dev_discrim * std_dev  # set std_dev limit for delta sigma over sigma from corr_factor
-
     std_dev_limit = (corr_factor - limit, corr_factor + limit)
     
     for line in get_corr_common_lines: 
-        delta_sig = line[2]
-        if delta_sig <= (corr_factor + limit) and delta_sig >= (corr_factor - limit):
+        delta_sig = line[2]  # delta sigma over sigma value for that alc/cln line pair
+        if delta_sig <= std_dev_limit[1] and delta_sig >= std_dev_limit[0]:
             lines_used.append(line)
         else:
             lines_rejected.append(line)    
@@ -136,6 +110,10 @@ def get_corr_factor(get_corr_common_lines, std_dev_discrim, prev_calib_unc):
 #    correction factor, std dev and std error for the remaining lines. Returns
 #    lines used in the new calcuation, the rejected lines, newly calculated
 #    correction factor, std dev and std error."""
+#
+#
+#!!!!!!!!!This piece of code recalculates the std dev for each new corr_factor 
+# produced after removing lines outside the std dev limit.!!!!!!!!!!!!!!!!!!!!!
 #    
 #    working_lines = get_corr_common_lines
 #    lines_rejected = []
@@ -159,7 +137,7 @@ def get_corr_factor(get_corr_common_lines, std_dev_discrim, prev_calib_unc):
 #            delta_sig = line[2]
 #            if delta_sig <= (corr_factor + limit) and delta_sig >= (corr_factor - limit):
 #                good_lines.append(line)
-#            else:
+#            else:http://www.bbc.co.uk/news/uk-scotland-south-scotland-40738484
 #                optimised = False
 #                lines_rejected.append(line) 
 #            
@@ -170,6 +148,51 @@ def get_corr_factor(get_corr_common_lines, std_dev_discrim, prev_calib_unc):
 #    calib_unc = calc_calib_unc(lines_used, prev_calib_unc)
 #     
 #    return lines_used, lines_rejected, corr_factor, calib_unc, std_dev_limit
+
+
+def calc_corr_factor(calc_corr_common_lines, prev_calib_unc):
+    """Returns the weighted average of delta sigma over sigma for all good,
+    common lines. This correction factor is weighted against SNR of the 
+    lines"""
+    
+    weighted_factors = 0.
+    total_weight = 0.
+    
+    for line in calc_corr_common_lines:
+        ki = line[2]  # delta sigma over sigma
+        aln_snr = float(line[0].peak)         
+        aln_FWHM = float(line[0].width) / 1000  # to convert from mK to cm-1
+        aln_stat_unc = (aln_FWHM / (2 * aln_snr)) 
+        
+        cln_snr = float(line[1].peak)
+        cln_FWHM = float(line[1].width) / 1000
+        cln_wavenum = float(line[1].wavenumber)
+        cln_stat_unc = cln_FWHM / (2 * cln_snr)
+        cln_tot_unc = np.sqrt(np.power(cln_stat_unc, 2) + np.power(prev_calib_unc * cln_wavenum, 2))
+                
+        wi = 1 / (np.power(aln_stat_unc, 2) + np.power(cln_tot_unc, 2))
+        
+        weighted_factors += (ki * wi)
+        total_weight += wi        
+             
+    return (weighted_factors / total_weight)
+
+
+#def calc_corr_factor_unc_sasha(weights, keff):
+#    
+#    total_weight = 0. 
+#    keff_unc = 0.
+#    
+#    for weight in weights:
+#        ki = weight[0]
+#        wi = weight[1]        
+#            
+#        keff_unc += (wi + (np.power(wi, 2) * np.power(keff - ki, 2)))  # From Sahsa's paper 
+#        total_weight += wi
+#    
+#    keff_unc = (keff_unc**0.5) / total_weight
+#    
+#    print('Keff Uncertainty = ' + str(keff_unc))
 
 
 def calc_calib_unc(corr_fact_unc_common_lines, prev_calib_unc):
@@ -194,12 +217,12 @@ def calc_calib_unc(corr_fact_unc_common_lines, prev_calib_unc):
         if cln_SNR > snr_limit:
             cln_SNR = snr_limit
 
-        aln_stat_unc = (aln_FWHM / (2 * aln_SNR))     
+        aln_stat_unc = (aln_FWHM / (2 * aln_SNR))   
         cln_stat_unc = (cln_FWHM / (2 * cln_SNR))
                
         total_stat_unc += np.sqrt(np.power(aln_stat_unc, 2) + np.power(cln_stat_unc, 2))
                 
-    return prev_calib_unc + (total_stat_unc / len(corr_fact_unc_common_lines))
+    return (prev_calib_unc + (total_stat_unc)) * np.power(10., -7)  #*10^-7 as this is the unc. on Keff which is in units of 10^-7
    
     
 def calc_std_dev(calc_std_dev_common_lines):
@@ -228,31 +251,31 @@ def plot_corr_factor(plot_lines_used, plot_lines_rejected, plot_corr_factor, plo
     lines_reject_wn = []
     lines_reject_del_sig = []  
     
-    plot_data_filename = aln_filename.split('.')[0] + '.plt'
+    plot_data_filename = os.getcwd() + '/' + aln_filename.split('.')[0] + '.plt'
     plot_data = open(plot_data_filename, 'w')
     
     plot_data.write('Lines used in correction factor calculation:\n')
     plot_data.write('Wavenumber (cm-1) \t del sigma / sigma\n')
     
     for line in plot_lines_used:
-        lines_used_wn.append(line[0].wavenumber)
+        lines_used_wn.append(float(line[0].wavenumber))
         lines_used_del_sig.append(line[2])
-        plot_data.write('%s \t %E\n' % (line[0].wavenumber, line[2]))
+        plot_data.write('%s \t %E\n' % (float(line[0].wavenumber), line[2]))
         
     plot_data.write('\n--------------------------------------------------\n')
     plot_data.write('Lines rejected from correction factor calcuation:\n')
     plot_data.write('Wavenumber (cm-1) \t del sigma / sigma\n')
     
     for line in plot_lines_rejected:
-        lines_reject_wn.append(line[0].wavenumber)
+        lines_reject_wn.append(float(line[0].wavenumber))
         lines_reject_del_sig.append(line[2])
-        plot_data.write('%s \t %E\n' % (line[0].wavenumber, line[2]))
+        plot_data.write('%s \t %E\n' % (float(line[0].wavenumber), line[2]))
     
     plot_data.write('\n--------------------------------------------------\n')
     plot_data.write('Correction factor = \t%E\n' % plot_corr_factor)
     plot_data.write('Upper s.d. limit  = \t%E\n' % plot_std_dev_limit[0])
     plot_data.write('Lower s.d. limit  = \t%E\n' % plot_std_dev_limit[1])
-    plot_data.write('Calibration unc.  =\t %E' % calib_unc)
+    plot_data.write('Calibration unc.  = \t %E' % calib_unc)
     plot_data.close()
      
     lines_used_del_sig = [x * np.power(10, 7) for x in lines_used_del_sig]  # convert everything into units of 10^-7
@@ -260,22 +283,31 @@ def plot_corr_factor(plot_lines_used, plot_lines_rejected, plot_corr_factor, plo
     plot_corr_factor = plot_corr_factor * np.power(10, 7)
     plot_std_dev_limit = [x * np.power(10, 7) for x in plot_std_dev_limit]
     
+    z = np.polyfit(lines_used_wn, lines_used_del_sig, 1)  # to calc and display linear trendline fot lines used.
+    p = np.poly1d(z)    
+    
+   
     plt.plot(lines_used_wn, lines_used_del_sig, 'b+', label='Lines used (' + str(len(lines_used_wn)) + ')')
     plt.plot(lines_reject_wn, lines_reject_del_sig, 'r+', label='Lines rejected (' + str(len(lines_reject_wn)) + ')')
-    plt.axhline(y=plot_corr_factor, color='k', linestyle='-')
+    plt.axhline(y=plot_corr_factor, color='b', linestyle='-')
     plt.axhline(y=(plot_std_dev_limit[0]), color='k', linestyle='--')
     plt.axhline(y=(plot_std_dev_limit[1]), color='k', linestyle='--')
+    
     plt.ylabel(r'$\Delta \sigma / \sigma$ (10$^{-7}$)')
     plt.xlabel('Wavenumber (cm'r'$^{-1})$')
     plt.title(aln_filename + ' calibrated to ' + cln_filename)
-    plt.legend()
+    plt.legend()    
+    plt.savefig(aln_filename.split('.')[0] + '.eps', format='eps', dpi=5000)
+    
+    plt.plot(lines_used_wn, p(lines_used_wn), 'b--')
     plt.show()
+
 
 
 def write_cln_file(aln_lines, corr_factor, aln_header, aln_filename):
     """Outputs the wavenumber corrected xGremlin-format linelist file."""
     
-    new_cln_filename = aln_filename.split('.')[0] + '_new.cln' 
+    new_cln_filename = os.getcwd() + '/' + aln_filename.split('.')[0] + '.cln' 
     new_cln_file = open(new_cln_filename, 'w')
     
     aln_header = aln_header.split('0.0000000000000000')
@@ -289,22 +321,22 @@ def write_cln_file(aln_lines, corr_factor, aln_header, aln_filename):
     new_cln_file.close()
     
 
-def write_cln_unc_file(aln_raw_lines,  corr_factor, calib_unc, aln_filename):
+def write_cal_file(aln_raw_lines,  corr_factor, calib_unc, aln_filename):
     """Ouputs a calibration file containing the lines written in the new
     calibrated linelist file aling with their line number and uncertainties.
     The total uncertainty is calculated as the addition of the statistical 
     unc. of the line and the calibration unc. of the spectrum in quadrature."""
     
-    new_cal_filename = aln_filename.split('.')[0] + '_new.cal' 
+    new_cal_filename = os.getcwd() + '/' + aln_filename.split('.')[0] + '.cal' 
     new_cal_file = open(new_cal_filename, 'w')
     
-    new_cal_file.write('Correction factor = ' + str(corr_factor) + '\n')
-    new_cal_file.write('Calibration uncertainty = ' + '{0:.6f}'.format(calib_unc) + '\n')
+    new_cal_file.write('Correction factor = ' + '{0:.4E}'.format(corr_factor) + '\n')
+    new_cal_file.write('Calibration uncertainty = ' + '{0:.4E}'.format(calib_unc) + '\n')
     new_cal_file.write('Line \tWavenumber \tStatisitcal Unc. \tTotal Unc. \n')
     
     for line in aln_raw_lines:
         
-        corrected_wavenum = '{0:.6f}'.format(float(line.wavenumber) * (1 + corr_factor))
+        corrected_wavenum = float(line.wavenumber) * (1 + corr_factor)
         
         if float(line.peak) > 100.:  # so as not to give an unreasonable estimate of uncertainty.
             line_snr = 100.
@@ -312,14 +344,14 @@ def write_cln_unc_file(aln_raw_lines,  corr_factor, calib_unc, aln_filename):
             line_snr = float(line.peak)
         
         stat_unc = (float(line.width) / 1000) / (2 * line_snr)
-        tot_unc = np.sqrt(np.power(stat_unc, 2) + np.power(calib_unc, 2))
+        tot_unc = np.sqrt(np.power(stat_unc, 2) + np.power(calib_unc * corrected_wavenum, 2))
         stat_unc = '{0:.6f}'.format(stat_unc)
         tot_unc = '{0:.6f}'.format(tot_unc)      
         
         new_cal_file.write(line.line + '\t')
-        new_cal_file.write(str(corrected_wavenum) + '\t')
-        new_cal_file.write(str(stat_unc) + '\t')
-        new_cal_file.write(str(tot_unc) + '\n')
+        new_cal_file.write('{0:.6f}'.format(corrected_wavenum) + '\t')
+        new_cal_file.write(stat_unc + '\t')
+        new_cal_file.write(tot_unc + '\n')
         
     new_cal_file.close()
 
@@ -376,7 +408,7 @@ def print_docstring():
     Outputs:
         calibrated linelist (.cln)
         uncertainties of that linelist (.cal)
-        delta sigma / sigma against wavenumber plot (.png)
+        delta sigma / sigma against wavenumber plot (.eps)
         data used to make the plot (.plt)
     
     """
@@ -390,7 +422,8 @@ def main():
     except IndexError:
         print_docstring()
         sys.exit()
-        
+
+    #inp_file = open('test.inp', 'r')  # For testing only 
     inp = inp_file.readlines()
     
     try: 
@@ -413,9 +446,9 @@ def main():
     cln_in_lines = cln_in.readlines()
     
     aln_header = get_header(aln_in_lines)
-    cln_header = get_header(cln_in_lines)
+#    cln_header = get_header(cln_in_lines)
     
-    aln_raw_lines = get_lines(aln_in_lines)
+    aln_raw_lines = get_lines(aln_in_lines)    
     cln_raw_lines = get_lines(cln_in_lines)
     
     aln_good_lines = remove_bad_lines(aln_raw_lines, snr_discrim)
@@ -442,7 +475,7 @@ def main():
         for line in lines_rejected:
             print('%d\t%.4f' % (float(line[0].line), float(line[0].wavenumber)))
     else:
-        print('\n\nAll lines within %s s.d. of mean.' % std_dev_discrim)
+        print('All lines within %s s.d. of mean.' % std_dev_discrim)
     
     print('\n\nCalculating final correction factor and calibration uncertainty:')
     print('\n------------------------------------------')
@@ -450,10 +483,10 @@ def main():
     print('Calibration Uncertainty : %.4E cm-1' % calib_unc)
     print('------------------------------------------\n')    
     
-    plot_corr_factor(lines_used, lines_rejected, corr_factor, std_dev_limit, aln_filename, cln_filename, calib_unc)
+    plot_corr_factor(lines_used, lines_rejected, corr_factor, std_dev_limit, aln_filename.split('/')[-1], cln_filename.split('/')[-1], calib_unc)
     
-    write_cln_file(aln_in_lines, corr_factor, aln_header, aln_filename)
-    write_cln_unc_file(aln_raw_lines, corr_factor, calib_unc, aln_filename)
+    write_cln_file(aln_in_lines, corr_factor, aln_header, aln_filename.split('/')[-1])
+    write_cal_file(aln_raw_lines, corr_factor, calib_unc, aln_filename.split('/')[-1])
     
     aln_in.close()
     cln_in.close()   
