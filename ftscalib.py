@@ -43,14 +43,15 @@ def get_lines(get_lines_in):
     return all_lines
         
         
-def remove_bad_lines(rm_bad_line_list, rm_bad_snr_disc):
+def remove_bad_lines(rm_bad_line_list, rm_bad_snr_disc_min, rm_bad_snr_disc_max):
     """Removes Line objects from line_list if they are not lsqfitted and/or
     have peak heights less than snr_discrim"""
     
     good_lines = []
     
     for line in rm_bad_line_list:  # only keep if lsqfitted and snr > discrinator
-        if line.tags == "L" and float(line.peak) >= rm_bad_snr_disc:
+        if line.tags == "L" and float(line.peak) >= rm_bad_snr_disc_min and float(line.peak) <= rm_bad_snr_disc_max:
+#        if float(line.peak) >= rm_bad_snr_disc_min and float(line.peak) <= rm_bad_snr_disc_max:
             good_lines.append(line)
     
     return good_lines
@@ -105,50 +106,6 @@ def get_corr_factor(get_corr_common_lines, std_dev_discrim, prev_calib_unc):
      
     return lines_used, lines_rejected, corr_factor, calib_unc, std_dev_limit
 
-#def get_corr_factor(get_corr_common_lines, std_dev_discrim, prev_calib_unc):
-#    """Discards lines outside of the std_dev_discrim limits and recalculates
-#    correction factor, std dev and std error for the remaining lines. Returns
-#    lines used in the new calcuation, the rejected lines, newly calculated
-#    correction factor, std dev and std error."""
-#
-#
-#!!!!!!!!!This piece of code recalculates the std dev for each new corr_factor 
-# produced after removing lines outside the std dev limit.!!!!!!!!!!!!!!!!!!!!!
-#    
-#    working_lines = get_corr_common_lines
-#    lines_rejected = []
-#    optimised = False
-#    
-#    while optimised is False:
-#        
-#        optimised = True
-#        good_lines = []
-#               
-#        try:
-#            corr_factor = calc_corr_factor(working_lines, prev_calib_unc)
-#        except ZeroDivisionError:
-#            print('No lines within %.2f standard deviations of mean! Try increasing the std. dev. discriminator.' % std_dev_discrim)
-#            sys.exit()
-#            
-#        std_dev, std_error = calc_std_dev(working_lines)
-#        limit = std_dev_discrim * std_dev
-#        
-#        for line in working_lines:
-#            delta_sig = line[2]
-#            if delta_sig <= (corr_factor + limit) and delta_sig >= (corr_factor - limit):
-#                good_lines.append(line)
-#            else:http://www.bbc.co.uk/news/uk-scotland-south-scotland-40738484
-#                optimised = False
-#                lines_rejected.append(line) 
-#            
-#        working_lines = good_lines       
-#
-#    lines_used = working_lines
-#    std_dev_limit = (corr_factor - limit, corr_factor + limit)
-#    calib_unc = calc_calib_unc(lines_used, prev_calib_unc)
-#     
-#    return lines_used, lines_rejected, corr_factor, calib_unc, std_dev_limit
-
 
 def calc_corr_factor(calc_corr_common_lines, prev_calib_unc):
     """Returns the weighted average of delta sigma over sigma for all good,
@@ -162,37 +119,20 @@ def calc_corr_factor(calc_corr_common_lines, prev_calib_unc):
         ki = line[2]  # delta sigma over sigma
         aln_snr = float(line[0].peak)         
         aln_FWHM = float(line[0].width) / 1000  # to convert from mK to cm-1
-        aln_stat_unc = (aln_FWHM / (2 * aln_snr)) 
+        aln_stat_unc = (aln_FWHM / (2 * aln_snr))  # Stat Unc. for aln line
         
         cln_snr = float(line[1].peak)
         cln_FWHM = float(line[1].width) / 1000
         cln_wavenum = float(line[1].wavenumber)
-        cln_stat_unc = cln_FWHM / (2 * cln_snr)
-        cln_tot_unc = np.sqrt(np.power(cln_stat_unc, 2) + np.power(prev_calib_unc * cln_wavenum, 2))
+        cln_stat_unc = cln_FWHM / (2 * cln_snr)  # Stat Unc. for aln line
+        cln_tot_unc = np.sqrt(np.power(cln_stat_unc, 2) + np.power(prev_calib_unc * cln_wavenum, 2))  # prev_calib_unc is delta sigma / sigma therefore need to multiply by wavenumber
                 
-        wi = 1 / (np.power(aln_stat_unc, 2) + np.power(cln_tot_unc, 2))
+        wi = 1 / (np.power(aln_stat_unc, 2) + np.power(cln_tot_unc, 2))  # weighting for weighted average calc
         
-        weighted_factors += (ki * wi)
+        weighted_factors += (ki * wi)  # save total weighted factors for weighted avg calc
         total_weight += wi        
              
     return (weighted_factors / total_weight)
-
-
-#def calc_corr_factor_unc_sasha(weights, keff):
-#    
-#    total_weight = 0. 
-#    keff_unc = 0.
-#    
-#    for weight in weights:
-#        ki = weight[0]
-#        wi = weight[1]        
-#            
-#        keff_unc += (wi + (np.power(wi, 2) * np.power(keff - ki, 2)))  # From Sahsa's paper 
-#        total_weight += wi
-#    
-#    keff_unc = (keff_unc**0.5) / total_weight
-#    
-#    print('Keff Uncertainty = ' + str(keff_unc))
 
 
 def calc_calib_unc(corr_fact_unc_common_lines, prev_calib_unc):
@@ -222,7 +162,8 @@ def calc_calib_unc(corr_fact_unc_common_lines, prev_calib_unc):
                
         total_stat_unc += np.sqrt(np.power(aln_stat_unc, 2) + np.power(cln_stat_unc, 2))
                 
-    return (prev_calib_unc + (total_stat_unc)) * np.power(10., -7)  #*10^-7 as this is the unc. on Keff which is in units of 10^-7
+    return prev_calib_unc + ((total_stat_unc) * np.power(10., -7))  #*10^-7 as this is the unc. on Keff which is in units of 10^-7 m
+
    
     
 def calc_std_dev(calc_std_dev_common_lines):
@@ -255,12 +196,12 @@ def plot_corr_factor(plot_lines_used, plot_lines_rejected, plot_corr_factor, plo
     plot_data = open(plot_data_filename, 'w')
     
     plot_data.write('Lines used in correction factor calculation:\n')
-    plot_data.write('Wavenumber (cm-1) \t del sigma / sigma\n')
+    plot_data.write('Wavenumber (cm-1) \t del sigma / sigma \t aln SNR \t cln SNR\n')
     
     for line in plot_lines_used:
         lines_used_wn.append(float(line[0].wavenumber))
         lines_used_del_sig.append(line[2])
-        plot_data.write('%s \t %E\n' % (float(line[0].wavenumber), line[2]))
+        plot_data.write('%s \t %E \t %.1f \t %.1f\n' % (float(line[0].wavenumber), line[2], float(line[0].peak), float(line[1].peak)))
         
     plot_data.write('\n--------------------------------------------------\n')
     plot_data.write('Lines rejected from correction factor calcuation:\n')
@@ -269,7 +210,7 @@ def plot_corr_factor(plot_lines_used, plot_lines_rejected, plot_corr_factor, plo
     for line in plot_lines_rejected:
         lines_reject_wn.append(float(line[0].wavenumber))
         lines_reject_del_sig.append(line[2])
-        plot_data.write('%s \t %E\n' % (float(line[0].wavenumber), line[2]))
+        plot_data.write('%s \t %E \t %.1f \t %.1f\n' % (float(line[0].wavenumber), line[2], float(line[0].peak), float(line[1].peak)))
     
     plot_data.write('\n--------------------------------------------------\n')
     plot_data.write('Correction factor = \t%E\n' % plot_corr_factor)
@@ -284,8 +225,7 @@ def plot_corr_factor(plot_lines_used, plot_lines_rejected, plot_corr_factor, plo
     plot_std_dev_limit = [x * np.power(10, 7) for x in plot_std_dev_limit]
     
     z = np.polyfit(lines_used_wn, lines_used_del_sig, 1)  # to calc and display linear trendline fot lines used.
-    p = np.poly1d(z)    
-    
+    p = np.poly1d(z)        
    
     plt.plot(lines_used_wn, lines_used_del_sig, 'b+', label='Lines used (' + str(len(lines_used_wn)) + ')')
     plt.plot(lines_reject_wn, lines_reject_del_sig, 'r+', label='Lines rejected (' + str(len(lines_reject_wn)) + ')')
@@ -316,7 +256,13 @@ def write_cln_file(aln_lines, corr_factor, aln_header, aln_filename):
     
     for line in aln_lines[4:]:
         corrected_wavenum = '{0:.6f}'.format(float(line[8:20]) * (1 + corr_factor)) # correct wavenumber
-        new_cln_file.write(line[:8] + str(corrected_wavenum) + line[20:])
+        
+        if float(corrected_wavenum) < 10000.0:  # to correct layout of cln files for 4 digit wavenumbers
+            space_corr = ' '
+        else:
+            space_corr = ''
+            
+        new_cln_file.write(line[:8] + space_corr + str(corrected_wavenum) + line[20:])
     
     new_cln_file.close()
     
@@ -378,7 +324,7 @@ class Line:
         self.id = xgremlin_line[119:145]        
         self.wavelength = xgremlin_line[150:160]
         
-class Decor:
+class Decor:  # Here to make the terminal output look fancy!
     PURPLE = '\033[95m'
     CYAN = '\033[96m'
     DARKCYAN = '\033[36m'
@@ -390,7 +336,8 @@ class Decor:
     UNDERLINE = '\033[4m'
     END = '\033[0m' 
     
-def print_docstring():
+    
+def print_docstring():  # Main document string. Gets called if no arguements are passed to ftscalib
     docstring = """
     
     ========== ftscalib (v1.0) ============
@@ -403,8 +350,11 @@ def print_docstring():
     Use only the Ar II standards bundled with ftscalib or match the format exactly if using your own. ftscalib is designed 
     to be run in a unix terminal. 
     
-    Inputs:
-        ftscalib input (.inp) file
+    --------------------------------------------------------------------------------    
+    Syntax : ftscalib <inp file>
+    <inp file>  : The ftscalib (.inp) input file
+
+    --------------------------------------------------------------------------------
     Outputs:
         calibrated linelist (.cln)
         uncertainties of that linelist (.cal)
@@ -423,16 +373,17 @@ def main():
         print_docstring()
         sys.exit()
 
-    #inp_file = open('test.inp', 'r')  # For testing only 
+    #inp_file = open('NiHeAH.inp', 'r')  # For testing only 
     inp = inp_file.readlines()
     
     try: 
-        snr_discrim = float(inp[4].split('=')[1])
-        wavenum_discrim = float(inp[5].split('=')[1])
-        std_dev_discrim = float(inp[6].split('=')[1])
-        prev_calib_unc = float(inp[7].split('=')[1])
-        aln_filename = (inp[8].split('=')[1].strip())
-        cln_filename = (inp[9].split('=')[1].strip()) 
+        snr_discrim_max = float(inp[4].split('=')[1])
+        snr_discrim_min = float(inp[5].split('=')[1])
+        wavenum_discrim = float(inp[6].split('=')[1])
+        std_dev_discrim = float(inp[7].split('=')[1])
+        prev_calib_unc = float(inp[8].split('=')[1])
+        aln_filename = (inp[9].split('=')[1].strip())
+        cln_filename = (inp[10].split('=')[1].strip()) 
     except IndexError:
         print('Input file is empty or corrupted. Please check and try again.')
         sys.exit()
@@ -444,18 +395,17 @@ def main():
     
     aln_in_lines = aln_in.readlines()
     cln_in_lines = cln_in.readlines()
-    
+
     aln_header = get_header(aln_in_lines)
-#    cln_header = get_header(cln_in_lines)
     
-    aln_raw_lines = get_lines(aln_in_lines)    
+    aln_raw_lines = get_lines(aln_in_lines)
     cln_raw_lines = get_lines(cln_in_lines)
+
+    aln_good_lines = remove_bad_lines(aln_raw_lines, snr_discrim_min, snr_discrim_max)
+    cln_good_lines = remove_bad_lines(cln_raw_lines, snr_discrim_min, snr_discrim_max)
     
-    aln_good_lines = remove_bad_lines(aln_raw_lines, snr_discrim)
-    cln_good_lines = remove_bad_lines(cln_raw_lines, snr_discrim)
-    
-    print('%s contains %i lsqfitted lines with a SNR over %.1f.' % (aln_filename, len(aln_good_lines), snr_discrim))
-    print('%s contains %i lsqfitted lines with a SNR over %.1f.\n' % (cln_filename, len(cln_good_lines), snr_discrim))
+    print('%s contains %i lsqfitted lines with a SNR between %.1f and %.1f.' % (aln_filename, len(aln_good_lines), snr_discrim_min, snr_discrim_max))
+    print('%s contains %i lsqfitted lines with a SNR between %.1f and %.1f.\n' % (cln_filename, len(cln_good_lines), snr_discrim_min, snr_discrim_max))
     
     cmn_lines = get_common_lines(aln_good_lines, cln_good_lines, wavenum_discrim)
     
@@ -480,7 +430,7 @@ def main():
     print('\n\nCalculating final correction factor and calibration uncertainty:')
     print('\n------------------------------------------')
     print('Correction Factor       : %.4E' % corr_factor)
-    print('Calibration Uncertainty : %.4E cm-1' % calib_unc)
+    print('Calibration Uncertainty : %.4E' % calib_unc)
     print('------------------------------------------\n')    
     
     plot_corr_factor(lines_used, lines_rejected, corr_factor, std_dev_limit, aln_filename.split('/')[-1], cln_filename.split('/')[-1], calib_unc)

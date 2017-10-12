@@ -2,7 +2,8 @@
 #
 # Change only the variable values. Do not change the order of the variables or their line positions!
 
-snr discriminator = 10.
+snr max discriminator = 30000.
+snr min discriminator = 10.
 wavenumber matching limit = 0.05
 standard deviation limit = 3.0
 previous calibration uncertainty = 0.

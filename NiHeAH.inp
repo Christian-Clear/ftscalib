@@ -1,0 +1,11 @@
+# ftscalib input file
+#
+# Change only the variable values. Do not change the order of the variables or their line positions!
+
+snr max discriminator = 1000.
+snr min discriminator = 20.
+wavenumber matching limit = 0.05
+standard deviation limit = 2.0
+previous calibration uncertainty = 1.3800E-08
+aln filename = NiHeAH.aln
+cln filename = NiHeBC.cln
