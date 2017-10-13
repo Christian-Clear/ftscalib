@@ -18,6 +18,40 @@ import matplotlib.pyplot as plt
 import sys
 import os
 
+
+    
+def print_docstring():  # Main document string. Gets called if no arguements are passed to ftscalib
+    docstring = """
+    
+    ========== ftscalib (v1.1) ============
+    
+    author : Christian Clear
+    email  : cpc14@ic.ac.uk
+    date   : 13/10/2017
+    
+    ftscalib is a python script for calibrating xGremlin .aln files against previously calibrated lines or Ar II standards.
+    Use only the Ar II standards bundled with ftscalib or match the format exactly if using your own. ftscalib is designed 
+    to be run in a unix terminal. 
+    
+    --------------------------------------------------------------------------------    
+    Syntax : ftscalib <inp file>
+    <inp file>  : The ftscalib (.inp) input file
+
+    --------------------------------------------------------------------------------
+    Outputs:
+        calibrated linelist (.cln)
+        uncertainties of that linelist (.cal)
+        delta sigma / sigma against wavenumber plot (.eps)
+        data used to make the plot (.plt)
+    
+    """
+    print(docstring)
+
+
+def calc_stat_unc(FWHM, del_w, SNR):
+    return np.sqrt(FWHM * del_w) / SNR  # Same maths as = FWHM / (np.sqrt(FWHM / del_w) * SNR) = FWHM / (np.sqrt(Number of points across FWHM) * SNR)
+    #return FWHM / (2 * SNR)
+    
 def get_header(header_lines_in):
     """Extracts the header lines at the start of aln and cln files.
     Returns them in a single string"""    
@@ -51,7 +85,6 @@ def remove_bad_lines(rm_bad_line_list, rm_bad_snr_disc_min, rm_bad_snr_disc_max)
     
     for line in rm_bad_line_list:  # only keep if lsqfitted and snr > discrinator
         if line.tags == "L" and float(line.peak) >= rm_bad_snr_disc_min and float(line.peak) <= rm_bad_snr_disc_max:
-#        if float(line.peak) >= rm_bad_snr_disc_min and float(line.peak) <= rm_bad_snr_disc_max:
             good_lines.append(line)
     
     return good_lines
@@ -80,7 +113,7 @@ def get_common_lines(get_cmn_aln_lines, get_cmn_cln_lines, get_cmn_wavenum_discr
     return get_cmn_common_lines
     
 
-def get_corr_factor(get_corr_common_lines, std_dev_discrim, prev_calib_unc):
+def get_corr_factor(get_corr_common_lines, std_dev_discrim, prev_calib_unc, aln_del_w, cln_del_w):
     """Discards lines outside of the std_dev_discrim limits and recalculates
     correction factor, std dev and std error for the remaining lines. Returns
     lines used in the new calcuation, the rejected lines, newly calculated
@@ -89,7 +122,7 @@ def get_corr_factor(get_corr_common_lines, std_dev_discrim, prev_calib_unc):
     lines_used = []
     lines_rejected = [] 
     
-    corr_factor = calc_corr_factor(get_corr_common_lines, prev_calib_unc)  # x used as dummy array as "weights" not needed here
+    corr_factor = calc_corr_factor(get_corr_common_lines, prev_calib_unc, aln_del_w, cln_del_w)  # x used as dummy array as "weights" not needed here
     std_dev, std_error = calc_std_dev(get_corr_common_lines)
     limit = std_dev_discrim * std_dev  # set std_dev limit for delta sigma over sigma from corr_factor
     std_dev_limit = (corr_factor - limit, corr_factor + limit)
@@ -101,13 +134,13 @@ def get_corr_factor(get_corr_common_lines, std_dev_discrim, prev_calib_unc):
         else:
             lines_rejected.append(line)    
     
-    corr_factor = calc_corr_factor(lines_used, prev_calib_unc)
-    calib_unc = calc_calib_unc(lines_used, prev_calib_unc)
+    corr_factor = calc_corr_factor(lines_used, prev_calib_unc, aln_del_w, cln_del_w)
+    calib_unc = calc_calib_unc(lines_used, prev_calib_unc, aln_del_w, cln_del_w)
      
     return lines_used, lines_rejected, corr_factor, calib_unc, std_dev_limit
 
 
-def calc_corr_factor(calc_corr_common_lines, prev_calib_unc):
+def calc_corr_factor(calc_corr_common_lines, prev_calib_unc, aln_del_w, cln_del_w):
     """Returns the weighted average of delta sigma over sigma for all good,
     common lines. This correction factor is weighted against SNR of the 
     lines"""
@@ -119,15 +152,16 @@ def calc_corr_factor(calc_corr_common_lines, prev_calib_unc):
         ki = line[2]  # delta sigma over sigma
         aln_snr = float(line[0].peak)         
         aln_FWHM = float(line[0].width) / 1000  # to convert from mK to cm-1
-        aln_stat_unc = (aln_FWHM / (2 * aln_snr))  # Stat Unc. for aln line
+        aln_stat_unc = calc_stat_unc(aln_FWHM, aln_del_w, aln_snr)  # Stat Unc. for aln line
         
         cln_snr = float(line[1].peak)
         cln_FWHM = float(line[1].width) / 1000
         cln_wavenum = float(line[1].wavenumber)
-        cln_stat_unc = cln_FWHM / (2 * cln_snr)  # Stat Unc. for aln line
-        cln_tot_unc = np.sqrt(np.power(cln_stat_unc, 2) + np.power(prev_calib_unc * cln_wavenum, 2))  # prev_calib_unc is delta sigma / sigma therefore need to multiply by wavenumber
+        cln_stat_unc = calc_stat_unc(cln_FWHM, cln_del_w, cln_snr)  # Stat Unc. for aln line
+        cln_cal_unc = prev_calib_unc * cln_wavenum
+        cln_tot_unc = np.sqrt(np.power(cln_stat_unc, 2) + np.power(cln_cal_unc, 2))  # prev_calib_unc is delta sigma / sigma therefore need to multiply by wavenumber
                 
-        wi = 1 / (np.power(aln_stat_unc, 2) + np.power(cln_tot_unc, 2))  # weighting for weighted average calc
+        wi = 1 / (np.power(aln_stat_unc, 2) + np.power(cln_tot_unc, 2))  # weighting for weighted average calc (inverse square of the aln and cln uncertainties added inquadrature)
         
         weighted_factors += (ki * wi)  # save total weighted factors for weighted avg calc
         total_weight += wi        
@@ -135,14 +169,14 @@ def calc_corr_factor(calc_corr_common_lines, prev_calib_unc):
     return (weighted_factors / total_weight)
 
 
-def calc_calib_unc(corr_fact_unc_common_lines, prev_calib_unc):
+def calc_calib_unc(corr_fact_unc_common_lines, prev_calib_unc, aln_del_w, cln_del_w):
     """Calculates the calibration uncertainty. The calibration uncertainty for 
     the previous spectra is added to the current calibration uncertainty 
     (NOT in quadrature) to ensure that the calibration uncertainty increases 
     with distance from teh Ar II standards."""
     
     total_stat_unc = 0.
-    snr_limit = 100.
+    snr_limit = 100. # Limit on SNR for strong lines to ensure sensible calibration uncertainty
         
     for line in corr_fact_unc_common_lines:
         aln_line = line[0]
@@ -152,18 +186,17 @@ def calc_calib_unc(corr_fact_unc_common_lines, prev_calib_unc):
         cln_SNR = float(cln_line.peak)
         cln_FWHM = float(cln_line.width) / 1000  # convert mK to cm-1
                
-        if aln_SNR > snr_limit:  # Limit on SNR for strong lines to ensure sensible calibration uncertainty
+        if aln_SNR > snr_limit:  
             aln_SNR = snr_limit
         if cln_SNR > snr_limit:
             cln_SNR = snr_limit
 
-        aln_stat_unc = (aln_FWHM / (2 * aln_SNR))   
-        cln_stat_unc = (cln_FWHM / (2 * cln_SNR))
+        aln_stat_unc = calc_stat_unc(aln_FWHM, aln_del_w, aln_SNR)  
+        cln_stat_unc = calc_stat_unc(cln_FWHM, cln_del_w, cln_SNR)
                
         total_stat_unc += np.sqrt(np.power(aln_stat_unc, 2) + np.power(cln_stat_unc, 2))
                 
     return prev_calib_unc + ((total_stat_unc) * np.power(10., -7))  #*10^-7 as this is the unc. on Keff which is in units of 10^-7 m
-
    
     
 def calc_std_dev(calc_std_dev_common_lines):
@@ -267,7 +300,7 @@ def write_cln_file(aln_lines, corr_factor, aln_header, aln_filename):
     new_cln_file.close()
     
 
-def write_cal_file(aln_raw_lines,  corr_factor, calib_unc, aln_filename):
+def write_cal_file(aln_raw_lines,  corr_factor, calib_unc, aln_filename, aln_del_w):
     """Ouputs a calibration file containing the lines written in the new
     calibrated linelist file aling with their line number and uncertainties.
     The total uncertainty is calculated as the addition of the statistical 
@@ -284,12 +317,13 @@ def write_cal_file(aln_raw_lines,  corr_factor, calib_unc, aln_filename):
         
         corrected_wavenum = float(line.wavenumber) * (1 + corr_factor)
         
-        if float(line.peak) > 100.:  # so as not to give an unreasonable estimate of uncertainty.
-            line_snr = 100.
+        if float(line.peak) > 200.:  # so as not to give an unreasonable estimate of uncertainty.
+            line_snr = 200.
         else:
             line_snr = float(line.peak)
         
-        stat_unc = (float(line.width) / 1000) / (2 * line_snr)
+        FWHM = float(line.width) / 1000
+        stat_unc = calc_stat_unc(FWHM, aln_del_w, line_snr)
         tot_unc = np.sqrt(np.power(stat_unc, 2) + np.power(calib_unc * corrected_wavenum, 2))
         stat_unc = '{0:.6f}'.format(stat_unc)
         tot_unc = '{0:.6f}'.format(tot_unc)      
@@ -336,33 +370,6 @@ class Decor:  # Here to make the terminal output look fancy!
     UNDERLINE = '\033[4m'
     END = '\033[0m' 
     
-    
-def print_docstring():  # Main document string. Gets called if no arguements are passed to ftscalib
-    docstring = """
-    
-    ========== ftscalib (v1.0) ============
-    
-    author : Christian Clear
-    email  : cpc14@ic.ac.uk
-    date   : 26/07/17
-    
-    ftscalib is a python script for calibrating xGremlin .aln files against previously calibrated lines or Ar II standards.
-    Use only the Ar II standards bundled with ftscalib or match the format exactly if using your own. ftscalib is designed 
-    to be run in a unix terminal. 
-    
-    --------------------------------------------------------------------------------    
-    Syntax : ftscalib <inp file>
-    <inp file>  : The ftscalib (.inp) input file
-
-    --------------------------------------------------------------------------------
-    Outputs:
-        calibrated linelist (.cln)
-        uncertainties of that linelist (.cal)
-        delta sigma / sigma against wavenumber plot (.eps)
-        data used to make the plot (.plt)
-    
-    """
-    print(docstring)
 
 #### Main Program ####
 def main():
@@ -373,7 +380,7 @@ def main():
         print_docstring()
         sys.exit()
 
-    #inp_file = open('NiHeAH.inp', 'r')  # For testing only 
+#    inp_file = open('test.inp', 'r')  # For testing only 
     inp = inp_file.readlines()
     
     try: 
@@ -382,8 +389,10 @@ def main():
         wavenum_discrim = float(inp[6].split('=')[1])
         std_dev_discrim = float(inp[7].split('=')[1])
         prev_calib_unc = float(inp[8].split('=')[1])
-        aln_filename = (inp[9].split('=')[1].strip())
-        cln_filename = (inp[10].split('=')[1].strip()) 
+        aln_del_w = float(inp[9].split('=')[1])
+        cln_del_w = float(inp[10].split('=')[1])
+        aln_filename = (inp[11].split('=')[1].strip())
+        cln_filename = (inp[12].split('=')[1].strip()) 
     except IndexError:
         print('Input file is empty or corrupted. Please check and try again.')
         sys.exit()
@@ -415,7 +424,7 @@ def main():
     for line in cmn_lines:
         print('%d\t%.4f \t%.1f    \t%.1f' % (float(line[0].line), float(line[0].wavenumber), float(line[0].peak), float(line[1].peak)))
     
-    lines_used, lines_rejected, corr_factor, calib_unc, std_dev_limit = get_corr_factor(cmn_lines, std_dev_discrim, prev_calib_unc)
+    lines_used, lines_rejected, corr_factor, calib_unc, std_dev_limit = get_corr_factor(cmn_lines, std_dev_discrim, prev_calib_unc, aln_del_w, cln_del_w)
     
     print('\n\nRemoving lines from correction factor calculation based on distance from mean:')
     
@@ -436,7 +445,7 @@ def main():
     plot_corr_factor(lines_used, lines_rejected, corr_factor, std_dev_limit, aln_filename.split('/')[-1], cln_filename.split('/')[-1], calib_unc)
     
     write_cln_file(aln_in_lines, corr_factor, aln_header, aln_filename.split('/')[-1])
-    write_cal_file(aln_raw_lines, corr_factor, calib_unc, aln_filename.split('/')[-1])
+    write_cal_file(aln_raw_lines, corr_factor, calib_unc, aln_filename.split('/')[-1], aln_del_w)
     
     aln_in.close()
     cln_in.close()   

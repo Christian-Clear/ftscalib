@@ -32,7 +32,7 @@ Lines rejected from correction factor calcuation:
 Wavenumber (cm-1) 	 del sigma / sigma
 
 --------------------------------------------------
-Correction factor = 	-6.156463E-07
-Upper s.d. limit  = 	-6.419397E-07
-Lower s.d. limit  = 	-5.893529E-07
-Calibration unc.  = 	 1.460826E-09
+Correction factor = 	-6.179367E-07
+Upper s.d. limit  = 	-6.486124E-07
+Lower s.d. limit  = 	-5.872611E-07
+Calibration unc.  = 	 1.462083E-09
